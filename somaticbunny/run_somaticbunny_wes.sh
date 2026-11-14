@@ -29,6 +29,11 @@ set -a
 # shellcheck disable=SC1090
 source "$PATHS_ENV"
 set +a
+# Every variable the run needs must come from the paths file. A PATHS_ENV left over from another
+# pipeline's run, or a truncated file, is reported by name rather than as "unbound variable".
+for v in DATABASE_PATH TMPDIR REF REF_FAI REF_DICT BED BED_TBI WES_CALLABLE_BED; do
+    [[ -n "${!v:-}" ]] || { echo "ERROR: $v is not set by $PATHS_ENV (PATHS_ENV must point at this pipeline's paths.env; unset it to use the default)" >&2; exit 1; }
+done
 mkdir -p "$TMPDIR" 2>/dev/null || { echo "ERROR: cannot create TMPDIR=${TMPDIR} (edit paths.env)" >&2; exit 1; }
 
 missing=0
