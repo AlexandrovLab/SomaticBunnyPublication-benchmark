@@ -1,0 +1,9 @@
+name: env_nf
+# Nextflow for both pipelines of the benchmark. SomaticBunny 1.0.0 requires Nextflow 25.10 or later
+# (manifest.nextflowVersion); nf-core/sarek 3.8.1 requires 24.04 or later.
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - nextflow=25.10.2
+  - openjdk=17
