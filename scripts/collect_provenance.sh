@@ -27,6 +27,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT="$(cd "${SCRIPT_DIR}/.." && pwd)/runs/${PIPELINE}/${DATASET}"
 mkdir -p "$OUT"
 [[ -f .nextflow/history ]] || { echo "ERROR: no .nextflow/history here: run this from the launch directory" >&2; exit 1; }
+n_runs=$(grep -c . .nextflow/history)
+[[ "$n_runs" -eq 1 ]] || { echo "ERROR: .nextflow/history lists $n_runs runs; a benchmark launch directory holds exactly one run made from scratch (no -resume, no relaunch)" >&2; exit 1; }
+grep -q -- '-resume' .nextflow/history && { echo "ERROR: the run used -resume; benchmark runs are made from scratch" >&2; exit 1; }
 
 tail -n 1 .nextflow/history > "$OUT/command.txt"
 

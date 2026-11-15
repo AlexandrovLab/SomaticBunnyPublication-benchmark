@@ -1,0 +1,6 @@
+# The five TCGA WES tumor/normal pairs of the benchmark (one line per patient).
+TCGA-5M-AATE
+TCGA-AA-3529
+TCGA-AA-3655
+TCGA-CM-6168
+TCGA-DM-A1D4

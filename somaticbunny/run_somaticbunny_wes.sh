@@ -7,6 +7,7 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BENCH_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"          # this repository
+CLUSTER_CONFIG="${BENCH_DIR}/config/cluster.config"      # scheduler settings, identical for both pipelines
 TRACE_CONFIG="${BENCH_DIR}/config/trace.config"           # trace/report/timeline, same for both pipelines
 SOMATICBUNNY_DIR="${SOMATICBUNNY_DIR:?set SOMATICBUNNY_DIR to the SomaticBunny checkout (directory containing main.nf)}"
 PATHS_ENV="${PATHS_ENV:-${SCRIPT_DIR}/paths.env}"
@@ -37,7 +38,7 @@ done
 mkdir -p "$TMPDIR" 2>/dev/null || { echo "ERROR: cannot create TMPDIR=${TMPDIR} (edit paths.env)" >&2; exit 1; }
 
 missing=0
-for f in "${SOMATICBUNNY_DIR}/main.nf" "$TRACE_CONFIG" \
+for f in "${SOMATICBUNNY_DIR}/main.nf" "$CLUSTER_CONFIG" "$TRACE_CONFIG" \
          "$REF" "$REF_FAI" "$REF_DICT" \
          "$BED" "$BED_TBI" "$WES_CALLABLE_BED"; do
     [[ -f "$f" ]] || { echo "ERROR: file not found: $f" >&2; missing=1; }
@@ -48,7 +49,14 @@ done
 command -v nextflow >/dev/null 2>&1 || { echo "ERROR: nextflow not on PATH" >&2; exit 1; }
 nextflow -version 2>&1 | grep -i "version" | head -n1 > nextflow_version.txt || true
 
-nextflow run "${SOMATICBUNNY_DIR}/main.nf" -profile tscc_slurm,conda \
+# Benchmark runs are made once, from scratch: no -resume, and a launch directory that has not run before.
+for a in "$@"; do
+    [[ "$a" == -resume* ]] && { echo "ERROR: -resume is not allowed for a benchmark run: restart the dataset from scratch in a fresh launch directory" >&2; exit 1; }
+done
+[[ -e .nextflow/history ]] && { echo "ERROR: $(pwd) already holds a Nextflow run; use a fresh launch directory" >&2; exit 1; }
+
+nextflow run "${SOMATICBUNNY_DIR}/main.nf" -profile conda \
+    -c "$CLUSTER_CONFIG" --max_cpus 64 --max_memory 900.GB --max_time 240.h \
     --type exome --first_step mapping --genome GRCh38 \
     --publish recal_bam \
     --database_path "$DATABASE_PATH" \

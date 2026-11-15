@@ -2,7 +2,8 @@
 
 Every metric below is computed by `scripts/benchmark_metrics.py` from the Nextflow run records,
 with the same code for SomaticBunny and Sarek. Both pipelines are run with `config/trace.config`,
-so their traces carry the same fields.
+so their traces carry the same fields, and with `config/cluster.config`, so their scheduler settings
+(queue size, submission rate, partition, QoS, account, per-job ceilings) are identical.
 
 ## Definitions
 
@@ -10,13 +11,26 @@ so their traces carry the same fields.
 |---|---|---|
 | Wall-clock time | Duration of the `nextflow run` invocation, from launch to completion: task execution, scheduler queueing, conda environment creation and the head job's own work. Reported for the overall pipeline only. | `.nextflow/history` line of the run (`command.txt`) |
 | Task realtime | Sum over completed tasks of the task's execution time (`realtime`): no queue wait. | trace |
-| **CPU time used** (CPU-hours) | Sum over completed tasks of `realtime × %cpu / 100`. `%cpu` is Nextflow's measurement of the CPU the task's processes consumed (cgroup accounting), so this is CPU actually used, whatever was reserved. | trace |
-| **Reserved core-hours** | Sum over every task attempt, failed and retried attempts included, of `cpus × realtime`, the CPUs the scheduler held for the task while it ran. This is what a cluster charges, and is sensitive to how a pipeline sizes its requests. | trace (`cpus` field) |
+| **CPU time used** (CPU-hours) | Sum over completed tasks of `realtime × %cpu / 100`. `%cpu` is Nextflow's measurement of the CPU the task's processes consumed (cgroup accounting), so this is CPU actually used, whatever was reserved. `%cpu` is not recorded for a failed attempt, so **failed attempts are excluded**. | trace |
+| **Reserved core-hours** | Sum over every task attempt, **failed and retried attempts included**, of `cpus × realtime`, the CPUs the scheduler held for the task while it ran. This is what a cluster charges, and is sensitive to how a pipeline sizes its requests. | trace (`cpus` field) |
+| Failed attempts | Number of task attempts that did not complete. Reported next to the two CPU metrics in every table, because it is the difference between what they count. | trace |
 | Peak memory | Largest peak resident set size (`peak_rss`) of any single task. | trace |
 | Disk | `du -sh` of the work directory and the results directory at the end of the run, before any cleanup. | `disk_usage.txt` |
 
 "CPU-hours" in the manuscript means **CPU time used** unless stated otherwise; reserved core-hours
-are reported next to it. Neither includes the head job.
+and failed attempts are reported next to it. Neither CPU metric includes the head job.
+
+## Sources and validity
+
+- The trace file (`trace-*.txt`, written by `config/trace.config`) is the source whenever it
+  holds the required fields (`name`, `status`, `realtime`, `%cpu`, `peak_rss`, `cpus`). The HTML
+  report is read only for a run whose trace lacks them (the archived runs made without
+  `trace.config`); the report's embedded data is otherwise the same records.
+- Every benchmark run is made once, from an empty launch directory, without `-resume`. The run
+  scripts refuse `-resume` and a reused directory, `collect_provenance.sh` refuses a launch
+  directory with more than one run, and the metric script rejects a trace containing `CACHED`
+  tasks: the usage of a resumed run's earlier attempt cannot be reconstructed, and its wall-clock is
+  split across invocations. A failed run is restarted from scratch.
 
 ## Stages
 
@@ -44,5 +58,5 @@ an unknown process name stops the script, so nothing is dropped silently).
 - Conda environments are created on first use in each launch directory for both pipelines; that
   time is in wall-clock, not in task realtime.
 - Reserved core-hours depend on each pipeline's own resource requests (SomaticBunny
-  `conf/base.config`; Sarek `conf/base.config` of release 3.8.1), with the cluster limits of
-  `config/sarek_tscc.config` and SomaticBunny's `max_*` parameters applied identically.
+  `conf/base.config`; Sarek `conf/base.config` of release 3.8.1 plus the four memory overrides of
+  `config/sarek_resources.config`), under the same per-job ceilings from `config/cluster.config`.

@@ -3,7 +3,8 @@
 # SomaticBunny benchmark: nf-core/sarek 3.8.1 on WES
 #
 # The pinned release is run directly from nf-core; the only configuration added is the cluster overlay
-# (config/sarek_tscc.config) and the run-record settings shared with SomaticBunny (config/trace.config).
+# (config/cluster.config, identical for both pipelines), the four justified memory overrides
+# (config/sarek_resources.config) and the run-record settings shared with SomaticBunny (config/trace.config).
 # Run records go to runs/sarek/<dataset>/ afterwards (scripts/collect_provenance.sh).
 #######################################################################
 
@@ -11,7 +12,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BENCH_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"          # this repository
 SAMPLESHEET="${1:-./samplesheet.csv}"
 shift || true
-CLUSTER_CONFIG="${BENCH_DIR}/config/sarek_tscc.config"   # executor, queue, node limits only
+CLUSTER_CONFIG="${BENCH_DIR}/config/cluster.config"            # scheduler settings, identical for both pipelines
+SAREK_RESOURCES="${BENCH_DIR}/config/sarek_resources.config"  # the four memory overrides and the retry count
 TRACE_CONFIG="${BENCH_DIR}/config/trace.config"           # trace/report/timeline, same for both pipelines
 PATHS_ENV="${PATHS_ENV:-${SCRIPT_DIR}/paths.env}"
 
@@ -41,7 +43,7 @@ done
 mkdir -p "$TMPDIR" 2>/dev/null || { echo "ERROR: cannot create TMPDIR=${TMPDIR} (edit paths.env)" >&2; exit 1; }
 
 missing=0
-for f in "$SAMPLESHEET" "$CLUSTER_CONFIG" "$TRACE_CONFIG" \
+for f in "$SAMPLESHEET" "$CLUSTER_CONFIG" "$SAREK_RESOURCES" "$TRACE_CONFIG" \
          "$DBSNP_VCF" "$DBSNP_TBI" "$KNOWN_INDELS" "$KNOWN_INDELS_TBI" \
          "$PON_VCF" "$PON_TBI" "$GERMLINE_RESOURCE" "$GERMLINE_RESOURCE_TBI" \
          "$WES_INTERVALS"; do
@@ -52,11 +54,17 @@ done
 command -v nextflow >/dev/null 2>&1 || { echo "ERROR: nextflow not on PATH" >&2; exit 1; }
 nextflow -version 2>&1 | grep -i "version" | head -n1 > nextflow_version.txt || true
 
+# Benchmark runs are made once, from scratch: no -resume, and a launch directory that has not run before.
+for a in "$@"; do
+    [[ "$a" == -resume* ]] && { echo "ERROR: -resume is not allowed for a benchmark run: restart the dataset from scratch in a fresh launch directory" >&2; exit 1; }
+done
+[[ -e .nextflow/history ]] && { echo "ERROR: $(pwd) already holds a Nextflow run; use a fresh launch directory" >&2; exit 1; }
+
 nextflow run nf-core/sarek -r 3.8.1 -profile conda \
     --input "$SAMPLESHEET" --step mapping --outdir ./results \
     --aligner bwa-mem2 --genome GATK.GRCh38 \
     --tools mutect2,strelka,freebayes,muse \
-    -c "$CLUSTER_CONFIG" -c "$TRACE_CONFIG" \
+    -c "$CLUSTER_CONFIG" -c "$SAREK_RESOURCES" -c "$TRACE_CONFIG" \
     --dbsnp "$DBSNP_VCF" \
     --dbsnp_tbi "$DBSNP_TBI" \
     --known_indels "$KNOWN_INDELS" \

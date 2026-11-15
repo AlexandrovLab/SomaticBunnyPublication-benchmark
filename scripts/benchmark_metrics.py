@@ -18,12 +18,19 @@ Metrics (see METRICS.md; every one is computed the same way for every pipeline):
                       completed tasks.
   used_cpu_h          sum over completed tasks of realtime x %cpu / 100: CPU time actually consumed,
                       as Nextflow measured it (Linux cgroup accounting of the task's processes).
-  reserved_core_h     sum over all task attempts of cpus x realtime: core-hours the scheduler
-                      reserved while tasks ran (what a cluster charges). Needs the `cpus` field,
-                      present in a trace produced with the benchmark `trace.config` or in the
-                      HTML report; "NA" otherwise.
+                      %cpu is not recorded for a failed attempt, so failed attempts are EXCLUDED.
+  reserved_core_h     sum over ALL task attempts, failed ones included, of cpus x realtime:
+                      core-hours the scheduler reserved while tasks ran (what a cluster charges).
+                      Needs the `cpus` field, present in a trace produced with the benchmark
+                      `trace.config` or in the HTML report; "NA" otherwise.
   peak_rss_gb         the largest peak resident set size of any single task.
-  tasks / failed      completed tasks, and attempts that failed (retried or fatal).
+  tasks / failed      completed tasks, and attempts that failed (retried or fatal). Always report
+                      failed_attempts next to the two CPU metrics: it is the size of the gap between them.
+
+The trace file is the source whenever it holds the required fields; the HTML report is read only
+for a run whose trace lacks them (old runs made without trace.config). A trace containing CACHED
+tasks comes from a resumed run and is rejected: the accounting cannot reconstruct the usage of the
+earlier attempt, so benchmark runs are made from scratch.
 
 Stages: each process is assigned to exactly one stage by name (STAGES below). An unknown process
 name stops the script, so no task is silently left out or misassigned.
@@ -68,6 +75,7 @@ STAGES = [
 ]
 STAGE_ORDER = [name for name, _ in STAGES] + ["overall pipeline"]
 
+REQUIRED = {"name", "status", "realtime", "%cpu", "peak_rss", "cpus"}   # a complete trace (config/trace.config)
 UNIT = {"ms": 0.001, "s": 1, "m": 60, "h": 3600, "d": 86400}
 MEM = {"B": 1, "KB": 1024, "MB": 1024 ** 2, "GB": 1024 ** 3, "TB": 1024 ** 4}
 
@@ -163,11 +171,16 @@ def find_records(run):
         sys.exit(f"{run}: no trace or report found")
     reports = [f for f in files if f.endswith(".html")]
     traces = [f for f in files if f.endswith(".txt")]
-    # the HTML report carries every field (cpus included); a default trace lacks cpus
-    src = reports[0] if reports else traces[0]
-    rows = load_report(src) if src.endswith(".html") else load_trace(src)
-    if "cpus" not in rows[0] and reports:
-        rows = load_report(reports[0]); src = reports[0]
+    rows, src = None, None
+    if traces:                                   # the trace is the source whenever it is complete
+        rows, src = load_trace(traces[0]), traces[0]
+        if not REQUIRED.issubset(rows[0].keys()):
+            missing = sorted(REQUIRED - set(rows[0].keys()))
+            if reports:                          # old run without trace.config: fall back to the report
+                print(f"# {traces[0]}: trace lacks {missing}; reading the HTML report instead", file=sys.stderr)
+                rows, src = load_report(reports[0]), reports[0]
+    elif reports:
+        rows, src = load_report(reports[0]), reports[0]
     hist = None
     cmd = os.path.join(d, "command.txt")
     if os.path.isfile(cmd):
@@ -187,6 +200,10 @@ def wall_clock_h(history_line):
 
 def summarise(label, run):
     rows, src, hist = find_records(run)
+    cached = [r for r in rows if r.get("status") == "CACHED"]
+    if cached:
+        sys.exit(f"{label}: {src} contains {len(cached)} CACHED task(s): this is a resumed run, whose CPU and "
+                 f"wall-clock usage cannot be reconstructed. Benchmark runs are made from scratch; rerun the dataset.")
     has_cpus = "cpus" in rows[0]
     acc = defaultdict(lambda: dict(tasks=0, failed=0, realtime_h=0.0, used_cpu_h=0.0,
                                    reserved_core_h=0.0, peak_rss_gb=0.0))
